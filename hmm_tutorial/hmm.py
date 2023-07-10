@@ -166,51 +166,81 @@ class PoissonHiddenMarkovModel(MarkovModel):
             observations += [self.states[self.current_state_id].sample_output()]
         return [self.id2name[i] for i in state_trajectory], observations
     
-    def likelihood(self, observations: list[int]) -> float:
-        """
-        Likelihood of a sequence of observations given an HMM
-        Should agree with the forward algorithm
-        """
+    def likelihood(self, observations: list[int], naive: bool = False) -> float:
+        """Likelihood of a sequence of observations given an HMM"""
+
+        if naive:
+            return self.forward_naive(observations)
+        else:
+            return self.forward(observations)
+    
+    def forward(self, observations: list[int]) -> float:
+        n_steps = len(observations)
+        n_states = self.n_states
+
+        # initialise
+        probability_matrix = np.zeros((n_states, n_steps))
+        for state_id in range(n_states):
+            state = self.states[state_id]
+            probability_matrix[state_id, 0] = self.init_dist[state_id] * state.output_probability(observations[0])
+
+        # dynamic programming step
+        for step in range(1, n_steps):
+            for current_state_id in range(n_states):
+                current_state = self.states[current_state_id]
+                for prev_state_id in range(n_states):
+                    probability_matrix[current_state_id, step] += (
+                        probability_matrix[prev_state_id, step - 1] *
+                        self.transition_matrix[prev_state_id, current_state_id] * 
+                        current_state.output_probability(observations[step])
+                    )
+        
+        # sum final column
+        return probability_matrix[:,-1].sum()
+
+    def forward_naive(self, observations: list[int]) -> float:
+        """Determine the likelihood of a sequence without using dynamic programming."""
+
+        def _get_all_trajectories(n_steps) -> list[tuple]:
+            """All possible combinations of trajectory"""
+            return list(itertools.product(self.state_ids, repeat=n_steps))
+    
+        def _probability_trajectory(trajectory) -> float:
+            """P(Q) -> Find the probability of a single trajectory"""
+            p = self.init_dist[trajectory[0]]
+            for step in range(len(trajectory)-1):
+                current_state = trajectory[step]
+                next_state = trajectory[step + 1]
+                p *= self.transition_matrix[current_state, next_state]
+            return p
+        
+        def _probability_observations_given_trajectory(observations: list[int], trajectory: list[int]) -> float:
+            """P(O|Q) -> conditional probability of observations given the trajectory"""
+            p_obs_given_state = 1
+            for state_id, observation in zip(trajectory, observations):
+                current_state: PoissonState = self.states[state_id]
+                p_obs_given_state *= current_state.output_probability(observation)
+            
+            return p_obs_given_state
+        
+        def _probability_observation_and_trajectory(observations: list[int], trajectory: list[int]) -> float:
+            """P(O, Q) = P(O | Q) x P(Q) -> joint probability of a sequence of observations and states"""
+            p_obs_given_state = _probability_observations_given_trajectory(observations, trajectory)
+            p_trajectory = _probability_trajectory(trajectory)
+            return p_obs_given_state * p_trajectory
 
         n_steps = len(observations)
-        assert n_steps < 10, "we do not want to let memory explode"
-        trajectories = self._get_all_trajectories(n_steps)
+        assert n_steps < 15, "we do not want to let memory explode"
+        trajectories = _get_all_trajectories(n_steps)
         
         likelihood = 0
         # sum_{Q} P(O | Q) x P(Q)
         for trajectory in trajectories:
             likelihood += (
                 # P(O, Q) = P(O | Q) x P(Q)
-                self._probability_observation_and_trajectory(observations, trajectory)
+                _probability_observation_and_trajectory(observations, trajectory)
             )
         return likelihood
-
-    def _get_all_trajectories(self, n_steps) -> list[tuple]:
-        """All possible combinations of trajectory"""
-        return list(itertools.product(self.state_ids, repeat=n_steps))
     
-    def _probability_trajectory(self, trajectory) -> float:
-        """P(Q) -> Find the probability of a single trajectory"""
-        p = self.init_dist[trajectory[0]]
-        for step in range(len(trajectory)-1):
-            current_state = trajectory[step]
-            next_state = trajectory[step + 1]
-            p *= self.transition_matrix[current_state, next_state]
-        return p
-    
-    def _probability_observations_given_trajectory(self, observations: list[int], trajectory: list[int]) -> float:
-        """P(O|Q) -> conditional probability of observations given the trajectory"""
-        p_obs_given_state = 1
-        for state_id, observation in zip(trajectory, observations):
-            current_state: PoissonState = self.states[state_id]
-            p_obs_given_state *= current_state.output_probability(observation)
-        
-        return p_obs_given_state
-    
-    def _probability_observation_and_trajectory(self, observations: list[int], trajectory: list[int]) -> float:
-        """P(O, Q) = P(O | Q) x P(Q) -> joint probability of a sequence of observations and states"""
-        p_obs_given_state = self._probability_observations_given_trajectory(observations, trajectory)
-        p_trajectory = self._probability_trajectory(trajectory)
-        return p_obs_given_state * p_trajectory
     
 
