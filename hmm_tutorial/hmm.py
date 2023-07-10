@@ -190,9 +190,9 @@ class PoissonHiddenMarkovModel(MarkovModel):
                 current_state = self.states[current_state_id]
                 for prev_state_id in range(n_states):
                     probability_matrix[current_state_id, step] += (
-                        probability_matrix[prev_state_id, step - 1] *
-                        self.transition_matrix[prev_state_id, current_state_id] * 
-                        current_state.output_probability(observations[step])
+                        probability_matrix[prev_state_id, step - 1]
+                        * self.transition_matrix[prev_state_id, current_state_id]
+                        * current_state.output_probability(observations[step])
                     )
         
         # sum final column
@@ -242,5 +242,53 @@ class PoissonHiddenMarkovModel(MarkovModel):
             )
         return likelihood
     
-    
+    def viterbi(self, observations: list[int]) -> tuple[list[str], float]:
+        """Run viterbi to determine the best sequence of states given some observations
+
+        Args:
+            observations (list[int]): Sequence of numerical observations
+
+        Returns:
+            tuple[list[str], float]: (best path, best path's probability)
+        """
+        n_steps = len(observations)
+        n_states = self.n_states
+
+        # initialise
+        v = np.zeros((n_states, n_steps))   # stores viterbi products
+        path_trace = np.zeros_like(v, dtype=int)  # stores a pointer to the best previous state from each state
+        for state_id in range(n_states):
+            state = self.states[state_id]
+            v[state_id, 0] = self.init_dist[state_id] * state.output_probability(observations[0])
+            path_trace[state_id, 0] = -1
+
+        # dynamic programming step
+        for step in range(1, n_steps):
+            for current_state_id in range(n_states):
+                current_state = self.states[current_state_id]
+                path_probabilities = [
+                    (
+                        v[prev_state_id, step - 1]
+                        * self.transition_matrix[prev_state_id, current_state_id]
+                        * current_state.output_probability(observations[step])
+                    )
+                    for prev_state_id in range(n_states)
+                ]
+                v[current_state_id, step] = np.max(path_probabilities)
+                path_trace[current_state_id, step] = np.argmax(path_probabilities)
+        
+        # find the best path by tracing back through stored indices
+        best_final_state = np.argmax(v[:,-1])
+        best_path = [best_final_state]
+        best_previous_step = path_trace[best_final_state, -1]
+        best_path += [best_previous_step]
+        for i in range(2, n_steps):
+            best_previous_step = path_trace[best_previous_step, -i]
+            best_path += [best_previous_step]
+        best_path.reverse()
+
+        best_path = [self.id2name[state_id] for state_id in best_path]
+        return  best_path, np.max(v[:-1])
+
+
 
