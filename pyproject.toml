@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["hmm_tutorial"]
+
+[project]
+name = "hmm_tutorial"
+version = "0.0.1"
+authors = [
+    { name = "Jake Pencharz", email = "jake.jay.p@gmail.com" }
+]
